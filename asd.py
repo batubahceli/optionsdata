@@ -313,10 +313,8 @@ if raw_df is not None:
             st.sidebar.markdown("---")
             st.sidebar.header("Analysis Filters")
             
-            # 1. Get unique values and sort them
+            # 1. Underlying Filter
             sorted_unders = sorted(df["Under"].unique())
-
-            # 2. Create dropdown
             selected_under = st.sidebar.selectbox("Select Underlying", sorted_unders)
             
             # 2. Expiry Filter
@@ -365,7 +363,7 @@ if raw_df is not None:
                 color="Participant_Group",
                 title="<b>Split View: Buyers (Left) vs Sellers (Right)</b><br>(Calls ↑ Positive | Puts ↓ Negative)",
                 labels={"Plot_Val": "Volume", "Participant_Group": "Participant"},
-                color_discrete_sequence=px.colors.qualitative.Prism, 
+                color_discrete_sequence=px.colors.qualitative.Dark24, 
                 height=600,
                 hover_data={"strike": True, "Side": True, "Plot_X": False}
             )
@@ -378,7 +376,8 @@ if raw_df is not None:
                 bargap=0.0, 
                 xaxis=dict(tickmode='array', tickvals=unique_strikes, ticktext=[str(s) for s in unique_strikes])
             )
-            fig.add_hline(y=0, line_color="black", line_width=1)
+            # CHANGED TO WHITE BELOW
+            fig.add_hline(y=0, line_color="white", line_width=1)
 
             selection = st.plotly_chart(fig, use_container_width=True, on_select="rerun")
 
