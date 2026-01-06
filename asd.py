@@ -1,3 +1,4 @@
+import pip
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -312,9 +313,11 @@ if raw_df is not None:
             st.sidebar.markdown("---")
             st.sidebar.header("Analysis Filters")
             
-            # 1. Underlying Filter
-            under_vol = df.groupby("Under")["LOT"].sum().sort_values(ascending=False)
-            selected_under = st.sidebar.selectbox("Select Underlying", under_vol.index)
+            # 1. Get unique values and sort them
+            sorted_unders = sorted(df["Under"].unique())
+
+            # 2. Create dropdown
+            selected_under = st.sidebar.selectbox("Select Underlying", sorted_unders)
             
             # 2. Expiry Filter
             df_under = df[df["Under"] == selected_under]
@@ -362,7 +365,7 @@ if raw_df is not None:
                 color="Participant_Group",
                 title="<b>Split View: Buyers (Left) vs Sellers (Right)</b><br>(Calls ↑ Positive | Puts ↓ Negative)",
                 labels={"Plot_Val": "Volume", "Participant_Group": "Participant"},
-                color_discrete_sequence=px.colors.qualitative.Dark24, 
+                color_discrete_sequence=px.colors.qualitative.Prism, 
                 height=600,
                 hover_data={"strike": True, "Side": True, "Plot_X": False}
             )
@@ -441,5 +444,5 @@ if raw_df is not None:
                         )
 
 else:
-    st.info("Please select a Data Source in the sidebar to begin.")
+    st.info("Please select a Viop Defterfile from '\\nas2\SHARED\datav2\bistZamanSatis' in the sidebar to begin.")
 
