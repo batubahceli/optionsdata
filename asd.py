@@ -36,6 +36,7 @@ PARTICIPANT_COLORS = {
 # =========================================================
 
 def normalize_yyyymmdd(d):
+    """Normalizes various date formats to YYYYMMDD string."""
     if isinstance(d, (datetime, date)):
         return d.strftime("%Y%m%d")
     s = str(d).strip()
@@ -47,7 +48,12 @@ def normalize_yyyymmdd(d):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_data(file_source, trade_date=None):
-    # A. Direct Upload
+    """
+    Optimized Loader:
+    1. Direct Upload: Reads memory.
+    2. NAS: Copies file to local cache first, then reads (C-engine).
+    """
+    # A. Handle File Upload (Direct Read)
     if hasattr(file_source, "read"):
         try:
             return pd.read_csv(
@@ -61,7 +67,7 @@ def load_data(file_source, trade_date=None):
             st.error(f"Error reading upload: {e}")
             return None
 
-    # B. NAS Loading with Local Caching
+    # B. Handle NAS Path (Smart Caching)
     yyyymmdd = normalize_yyyymmdd(trade_date)
     base_dir = r"\\nas2\SHARED\datav2\bistZamanSatis"
     
@@ -75,12 +81,12 @@ def load_data(file_source, trade_date=None):
     if nas_file is None:
         return None
 
-    # Create temp cache folder to speed up subsequent loads
+    # Prepare Local Cache Directory
     cache_dir = Path("temp_data_cache")
     cache_dir.mkdir(exist_ok=True)
     local_file = cache_dir / nas_file.name
 
-    # Copy if not exists
+    # Copy only if missing
     if not local_file.exists():
         try:
             with st.spinner(f"📥 Downloading data from NAS to local cache... ({nas_file.name})"):
@@ -114,6 +120,9 @@ def load_data(file_source, trade_date=None):
 
 @st.cache_data
 def process_data(df, n1_list_to_modify=None):
+    """
+    Applies regex extraction, standardized cleaning, and creates helper columns.
+    """
     if df is None or df.empty:
         return pd.DataFrame()
 
@@ -124,7 +133,7 @@ def process_data(df, n1_list_to_modify=None):
         df = df.rename(columns={"SEMBOL": "Instrument"})
     
     df["Instrument"] = df["Instrument"].astype(str)
-    # Filter for Options only
+    # Filter for Options only (O_ or TM_O_)
     mask = df["Instrument"].str.startswith("O_") | df["Instrument"].str.startswith("TM_O_")
     df = df.loc[mask].copy()
 
@@ -134,13 +143,13 @@ def process_data(df, n1_list_to_modify=None):
     # --- Underlying Extraction Logic ---
     tm_mask = df['Instrument'].str.startswith('TM_')
     
-    # TM_ Logic
+    # TM_ Logic (Short codes)
     df.loc[tm_mask, 'Under'] = df.loc[tm_mask, 'Instrument'].apply(
         lambda x: f"F_{x.split('_')[2][:x.split('_')[2].rfind('E')]}{x.split('_')[2][x.split('_')[2].rfind('E')+3:x.split('_')[2].rfind('E')+7]}"
         if len(x.split('_')) > 2 else np.nan
     )
 
-    # Standard Logic
+    # Standard Logic (Long codes)
     df.loc[~tm_mask, 'Under'] = df.loc[~tm_mask, 'Instrument'].str.extract(r'([A-Z]+_\w+\d{4})')[0]
     df.loc[~tm_mask, 'Under'] = df.loc[~tm_mask, 'Under'].str[:-5] 
     df.loc[~tm_mask, 'Under'] = df.loc[~tm_mask, 'Under'].apply(lambda x: x.replace('O_', '', 1) if isinstance(x, str) else x)
@@ -197,9 +206,16 @@ def process_data(df, n1_list_to_modify=None):
     df["expiry_ym"] = df["mmyy"].apply(fmt_expiry)
     df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
     
+    # Create Display Label for SSO grouping (e.g. "EKGYO 0226")
+    df["Display_Label"] = df.apply(
+        lambda r: f"{str(r['Under']).split('_')[0] if '_' in str(r['Under']) else str(r['Under'])[:5]} {str(r['mmyy'])}" 
+        if pd.notna(r['Under']) and pd.notna(r['mmyy']) else np.nan, axis=1
+    )
+
     return df.dropna(subset=["strike", "cp", "expiry_ym"])
 
 def get_participant_details(df_subset):
+    """Aggregates Buy/Sell/Total activity for participants."""
     buy_stats = df_subset.groupby("ALAN").agg(Buy_Lot=("LOT", "sum"), Buy_TL=("TL", "sum"))
     buy_stats["Buy_Price"] = buy_stats["Buy_TL"] / buy_stats["Buy_Lot"]
     
@@ -213,15 +229,12 @@ def get_participant_details(df_subset):
     return combined.sort_values("Total_Activity", ascending=False)
 
 def get_sector_data(df, filter_type):
-    """
-    Returns data subset and calculated stats for a specific sector.
-    Includes custom right-chart logic based on the sector type.
-    """
+    """Returns data subset and calculated stats for a specific sector."""
     if filter_type == "XU030":
         subset = df[df["Under"].str.contains("XU030", case=False, na=False)]
     elif filter_type == "USDTRY":
         subset = df[df["Under"].str.contains("USDTRY", case=False, na=False)]
-    else: # SSO
+    else: # SSO (Single Stocks)
         subset = df[
             (~df["Under"].str.contains("XU030", case=False, na=False)) & 
             (~df["Under"].str.contains("USDTRY", case=False, na=False))
@@ -243,25 +256,12 @@ def get_sector_data(df, filter_type):
 
     # 3. Right Chart Data (Dynamic based on Sector)
     if filter_type == "SSO":
-        # Make a copy to avoid SettingWithCopyWarning
         subset = subset.copy()
-        
-        # Create Label: EKGYO + MMYY (e.g. "EKGYO 0126")
-        # expiry_ym is YYYY-MM (e.g., 2026-01)
-        # We extract MM (5:7) and YY (2:4)
-        subset["Display_Label"] = subset["Under"] + " " + subset["expiry_ym"].str[5:7] + subset["expiry_ym"].str[2:4]
-        
-        # Group by this new label
         right_chart_data = subset.groupby("Display_Label")["LOT"].sum().nlargest(10).reset_index()
         right_chart_type = "Underlying Expiry"
-        
     else:
-        # For XU030/USDTRY, show Volume by Expiry (e.g., Feb 2026, Mar 2026)
         right_chart_data = subset.groupby("expiry_ym")["LOT"].sum().reset_index().sort_values("expiry_ym")
-        
-        # Convert YYYY-MM to nice Month-Year Label (e.g., "Feb 2026")
         right_chart_data["Label"] = pd.to_datetime(right_chart_data["expiry_ym"] + "-01").dt.strftime("%b %Y")
-        
         right_chart_type = "Expiry"
 
     return subset, total_vol, call_vol, put_vol, p_total, right_chart_data, right_chart_type
@@ -350,7 +350,7 @@ if raw_df is not None:
                     st.plotly_chart(fig_p, use_container_width=True)
                     
                 with c_right:
-                    st.subheader(f"📊 Most Active {s_right_type}")
+                    st.subheader(f"📊 Most Active {s_right_type} (Click to Drill Down)")
                     if not s_right_data.empty:
                         # Determine X and Y based on type
                         if s_right_type == "Expiry":
@@ -368,23 +368,93 @@ if raw_df is not None:
                             color_continuous_scale="Viridis"
                         )
                         
-                        # FORCE CATEGORICAL AXIS: Stops "daily" ticks like Jan 11, Jan 25
+                        # FORCE CATEGORICAL AXIS: Stops "daily" ticks logic
                         fig_r.update_xaxes(type='category')
                         
-                        # Ensure Correct Order for Expiries
+                        # Ensure Correct Order
                         if s_right_type == "Expiry":
                             fig_r.update_layout(xaxis={'categoryorder':'array', 'categoryarray': s_right_data["Label"].tolist()})
                         else:
-                            # For SSO, sort by Volume descending
                             fig_r.update_layout(xaxis={'categoryorder':'total descending'})
                             
                         fig_r.update_layout(height=350, margin=dict(l=0,r=0,t=30,b=0))
-                        st.plotly_chart(fig_r, use_container_width=True)
+                        
+                        # MAKE CHART CLICKABLE
+                        sel_bar = st.plotly_chart(fig_r, use_container_width=True, on_select="rerun")
                     else:
                         st.info("Not enough data.")
+                        sel_bar = None
 
-                # C. Top Contracts List
-                st.markdown(f"**🔥 Top 5 Active {filter_name} Contracts**")
+                # --- DRILL DOWN LOGIC ---
+                if sel_bar and len(sel_bar["selection"]["points"]) > 0:
+                    pt = sel_bar["selection"]["points"][0]
+                    clicked_label = pt["x"]
+                    
+                    st.markdown("---")
+                    st.subheader(f"🔍 Drill Down: {clicked_label}")
+                    
+                    # Filter Subset based on selection
+                    drill_df = pd.DataFrame()
+                    if s_right_type == "Expiry":
+                        try:
+                            date_obj = datetime.strptime(clicked_label, "%b %Y")
+                            target_ym = date_obj.strftime("%Y-%m")
+                            drill_df = subset[subset["expiry_ym"] == target_ym]
+                        except:
+                            st.error("Date parsing error on drill down.")
+                    else:
+                        drill_df = subset[subset["Display_Label"] == clicked_label]
+                    
+                    if not drill_df.empty:
+                        # 1. Donut Chart (Top 10 Instruments)
+                        col_donut, col_table = st.columns([1, 2])
+                        
+                        with col_donut:
+                            st.caption("Volume Breakdown (Top 10)")
+                            inst_grp = drill_df.groupby("Instrument")["LOT"].sum().reset_index()
+                            
+                            # Top 10 + Others logic
+                            if len(inst_grp) > 10:
+                                top_10_inst = inst_grp.nlargest(10, "LOT")
+                                other_vol = inst_grp["LOT"].sum() - top_10_inst["LOT"].sum()
+                                if other_vol > 0:
+                                    top_10_inst = pd.concat([top_10_inst, pd.DataFrame([{"Instrument": "Others", "LOT": other_vol}])], ignore_index=True)
+                            else:
+                                top_10_inst = inst_grp
+
+                            fig_donut = px.pie(top_10_inst, values="LOT", names="Instrument", hole=0.4)
+                            fig_donut.update_layout(height=350, margin=dict(l=0,r=0,t=0,b=0), showlegend=False)
+                            fig_donut.update_traces(textposition='inside', textinfo='percent+label')
+                            
+                            sel_donut = st.plotly_chart(fig_donut, use_container_width=True, on_select="rerun")
+                        
+                        # 2. Detailed Table (Filterable)
+                        with col_table:
+                            final_view = drill_df
+                            if sel_donut and len(sel_donut["selection"]["points"]) > 0:
+                                clicked_inst = sel_donut["selection"]["points"][0]["label"]
+                                if clicked_inst != "Others":
+                                    final_view = drill_df[drill_df["Instrument"] == clicked_inst]
+                                    st.caption(f"Trades for: **{clicked_inst}**")
+                                else:
+                                    st.caption("Trades for: **All Instruments**")
+                            else:
+                                st.caption("Trades for: **All Selection**")
+
+                            st.dataframe(
+                                final_view[["SEMBOL", "ALAN", "SATAN", "LOT", "FIYAT", "TL"]],
+                                use_container_width=True,
+                                height=350,
+                                column_config={
+                                    "LOT": st.column_config.NumberColumn("Lots", format="%d"),
+                                    "FIYAT": st.column_config.NumberColumn("Price", format="%.2f"),
+                                    "TL": st.column_config.NumberColumn("Total Value", format="%.0f"),
+                                }
+                            )
+
+                # C. Top Contracts List (Summary)
+                st.markdown("---")
+                st.markdown(f"**🔥 Top 5 Active {filter_name} Contracts (Summary)**")
                 top_5 = subset.groupby("Instrument")["LOT"].sum().nlargest(5).index.tolist()
                 results = []
                 for inst in top_5:
@@ -422,7 +492,6 @@ if raw_df is not None:
             df_c = df_u[df_u["expiry_ym"] == sel_exp].copy()
 
             # --- Butterfly Chart Prep ---
-            # Buyers (Negative X) vs Sellers (Positive X)
             df_a = df_c[["strike", "cp", "ALAN", "LOT"]].rename(columns={"ALAN":"Participant"})
             df_a["Side"] = "Buy"
             df_s = df_c[["strike", "cp", "SATAN", "LOT"]].rename(columns={"SATAN":"Participant"})
@@ -430,15 +499,21 @@ if raw_df is not None:
             
             full = pd.concat([df_a, df_s], ignore_index=True)
 
-            # X Logic: Volume
+            # X Logic: Volume (Buy Negative, Sell Positive)
             full["Plot_X"] = np.where(full["Side"]=="Buy", -full["LOT"], full["LOT"])
             
-            # Y Logic: Strike + Offset (Call Up, Put Down)
+            # Y Logic: Strike + Offset
+            # WE WANT LOW STRIKES TOP, HIGH STRIKES BOTTOM.
+            # Plotly Axis Reversed: Top = Low #, Bottom = High #
+            # WE WANT CALLS TOP, PUTS BOTTOM visually.
+            # To appear on "Top" (Low Y Value) in a reversed axis, the value must be lower.
             strikes = np.sort(full["strike"].unique())
             min_diff = np.min(np.diff(strikes)) if len(strikes)>1 else 1.0
             y_off = min_diff * 0.20
             
-            full["Plot_Y"] = np.where(full["cp"]=="C", full["strike"]+y_off, full["strike"]-y_off)
+            # Call = Strike - Offset (Lower Number -> Renders Higher on Reversed Axis)
+            # Put  = Strike + Offset (Higher Number -> Renders Lower on Reversed Axis)
+            full["Plot_Y"] = np.where(full["cp"]=="C", full["strike"]-y_off, full["strike"]+y_off)
 
             # Coloring Logic
             top_p = full.groupby("Participant")["LOT"].sum().nlargest(15).index
@@ -465,7 +540,8 @@ if raw_df is not None:
                     tickmode='array', 
                     tickvals=strikes, 
                     ticktext=[str(s) for s in strikes], 
-                    title="Strike Price"
+                    title="Strike Price",
+                    autorange="reversed" # LOW STRIKES TOP, HIGH STRIKES BOTTOM
                 ),
                 xaxis_title="Volume ( ← Buy | Sell → )", 
                 bargap=0.1, 
@@ -484,7 +560,7 @@ if raw_df is not None:
                 
                 # Reverse Map Y to Strike
                 c_strike = strikes[np.abs(strikes - click_y).argmin()]
-                c_cp = "C" if click_y > c_strike else "P"
+                c_cp = "C" if click_y < c_strike else "P" # Reversed logic due to inverted axis
                 c_side = "Buyers" if click_x < 0 else "Sellers"
                 
                 st.markdown("---")
