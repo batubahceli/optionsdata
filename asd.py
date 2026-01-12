@@ -129,6 +129,7 @@ def process_data(df, n1_list_to_modify=None):
     if n1_list_to_modify is None:
         n1_list_to_modify = []
 
+    # RENAME SEMBOL TO INSTRUMENT
     if "SEMBOL" in df.columns:
         df = df.rename(columns={"SEMBOL": "Instrument"})
     
@@ -441,8 +442,9 @@ if raw_df is not None:
                             else:
                                 st.caption("Trades for: **All Selection**")
 
+                            # FIX: Use "Instrument" instead of "SEMBOL"
                             st.dataframe(
-                                final_view[["SEMBOL", "ALAN", "SATAN", "LOT", "FIYAT", "TL"]],
+                                final_view[["Instrument", "ALAN", "SATAN", "LOT", "FIYAT", "TL"]],
                                 use_container_width=True,
                                 height=350,
                                 column_config={
@@ -506,7 +508,6 @@ if raw_df is not None:
             # WE WANT LOW STRIKES TOP, HIGH STRIKES BOTTOM.
             # Plotly Axis Reversed: Top = Low #, Bottom = High #
             # WE WANT CALLS TOP, PUTS BOTTOM visually.
-            # To appear on "Top" (Low Y Value) in a reversed axis, the value must be lower.
             strikes = np.sort(full["strike"].unique())
             min_diff = np.min(np.diff(strikes)) if len(strikes)>1 else 1.0
             y_off = min_diff * 0.20
