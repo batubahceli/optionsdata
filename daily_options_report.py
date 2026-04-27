@@ -2,9 +2,6 @@ import streamlit as st
 from datetime import date, timedelta
 import base64
 
-# =========================================================
-# PAGE SETUP
-# =========================================================
 st.set_page_config(
     page_title="Daily Options Report",
     page_icon="📈",
@@ -27,18 +24,17 @@ def build_filename(selected_date: date, lang: str) -> str:
 def display_pdf(pdf_bytes: bytes):
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
     pdf_html = f"""
-        <iframe
+        <embed
             src="data:application/pdf;base64,{b64}"
+            type="application/pdf"
             width="100%"
-            height="850px"
-            style="border: none; border-radius: 8px;"
-        ></iframe>
+            height="900px"
+            style="border-radius: 8px;"
+        />
     """
     st.markdown(pdf_html, unsafe_allow_html=True)
 
-# =========================================================
 # SIDEBAR
-# =========================================================
 st.sidebar.header("📄 Rapor Seçimi")
 
 selected_date = st.sidebar.date_input(
@@ -56,31 +52,27 @@ lang = st.sidebar.radio(
 st.sidebar.markdown("---")
 
 expected_filename = build_filename(selected_date, lang)
-st.sidebar.caption(f"📎 Beklenen dosya adı:")
+st.sidebar.caption("📎 Beklenen dosya adı:")
 st.sidebar.code(expected_filename, language=None)
 
 uploaded_file = st.sidebar.file_uploader(
     "PDF Dosyasını Yükle",
-    type=["pdf"],
-    help=f"Bilgisayarından {expected_filename} dosyasını seç"
+    type=["pdf"]
 )
 
-# =========================================================
 # MAIN AREA
-# =========================================================
 st.markdown("## 📈 Daily Options Report")
 st.markdown("---")
 
 if uploaded_file is not None:
     if uploaded_file.name != expected_filename:
         st.warning(
-            f"⚠️ Yüklenen dosya adı (**{uploaded_file.name}**) seçilen tarih/dil ile eşleşmiyor.\n\n"
-            f"Beklenen: **{expected_filename}**\n\n"
-            f"Yine de görüntülemek için devam edebilirsiniz."
+            f"⚠️ Yüklenen dosya: **{uploaded_file.name}**\n\n"
+            f"Beklenen: **{expected_filename}**"
         )
 
     pdf_bytes = uploaded_file.read()
-    
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.success(f"✅ **{uploaded_file.name}** yüklendi.")
