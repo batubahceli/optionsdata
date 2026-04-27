@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import date, timedelta
 import base64
+import fitz  # pymupdf
 
 st.set_page_config(
     page_title="Daily Options Report",
@@ -21,18 +22,16 @@ def build_filename(selected_date: date, lang: str) -> str:
     day   = selected_date.day
     return f"OptDailyAuto_{year}_{month}_{day:02d}_{lang}.pdf"
 
-def display_pdf(pdf_bytes: bytes):
-    b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-    pdf_html = f"""
-        <embed
-            src="data:application/pdf;base64,{b64}"
-            type="application/pdf"
-            width="100%"
-            height="900px"
-            style="border-radius: 8px;"
-        />
-    """
-    st.markdown(pdf_html, unsafe_allow_html=True)
+def display_pdf_as_images(pdf_bytes: bytes):
+    """PDF sayfalarını resim olarak gösterir."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        mat = fitz.Matrix(2, 2)  # 2x zoom - yüksek kalite
+        pix = page.get_pixmap(matrix=mat)
+        img_bytes = pix.tobytes("png")
+        st.image(img_bytes, caption=f"Sayfa {page_num + 1}", use_container_width=True)
+    doc.close()
 
 # SIDEBAR
 st.sidebar.header("📄 Rapor Seçimi")
@@ -67,7 +66,7 @@ st.markdown("---")
 if uploaded_file is not None:
     if uploaded_file.name != expected_filename:
         st.warning(
-            f"⚠️ Yüklenen dosya: **{uploaded_file.name}**\n\n"
+            f"⚠️ Yüklenen: **{uploaded_file.name}**\n\n"
             f"Beklenen: **{expected_filename}**"
         )
 
@@ -85,7 +84,9 @@ if uploaded_file is not None:
         )
 
     st.markdown("---")
-    display_pdf(pdf_bytes)
+
+    with st.spinner("PDF sayfaları yükleniyor..."):
+        display_pdf_as_images(pdf_bytes)
 
 else:
     st.info(
