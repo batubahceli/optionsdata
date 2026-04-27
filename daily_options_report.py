@@ -27,7 +27,7 @@ def display_pdf_as_images(pdf_bytes: bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     for page_num in range(len(doc)):
         page = doc[page_num]
-        mat = fitz.Matrix(3, 3)  # 2x zoom - yüksek kalite
+        mat = fitz.Matrix(5, 5)  # 2x zoom - yüksek kalite
         pix = page.get_pixmap(matrix=mat)
         img_bytes = pix.tobytes("png")
         st.image(img_bytes, caption=f"Sayfa {page_num + 1}", use_container_width=False)
