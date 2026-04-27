@@ -30,7 +30,7 @@ def display_pdf_as_images(pdf_bytes: bytes):
         mat = fitz.Matrix(2, 2)  # 2x zoom - yüksek kalite
         pix = page.get_pixmap(matrix=mat)
         img_bytes = pix.tobytes("png")
-        st.image(img_bytes, caption=f"Sayfa {page_num + 1}", use_container_width=True)
+        st.image(img_bytes, caption=f"Sayfa {page_num + 1}", use_container_width=False)
     doc.close()
 
 # SIDEBAR
