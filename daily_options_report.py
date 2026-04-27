@@ -1,5 +1,4 @@
 import streamlit as st
-from pathlib import Path
 from datetime import date, timedelta
 import base64
 
@@ -13,40 +12,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# =========================================================
-# CONSTANTS
-# =========================================================
-NAS_DIR = Path(r"\\nas2\SHARED\batuhan\daily_reports")
-
 MONTH_MAP = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr",
     5: "May", 6: "Jun", 7: "Jul", 8: "Aug",
     9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec"
 }
 
-# =========================================================
-# HELPER FUNCTIONS
-# =========================================================
-
 def build_filename(selected_date: date, lang: str) -> str:
-    """Builds the PDF filename from date and language."""
     year  = selected_date.year
     month = MONTH_MAP[selected_date.month]
     day   = selected_date.day
     return f"OptDailyAuto_{year}_{month}_{day:02d}_{lang}.pdf"
 
-def load_pdf(file_path: Path) -> bytes | None:
-    """Reads PDF bytes from NAS path."""
-    try:
-        return file_path.read_bytes()
-    except FileNotFoundError:
-        return None
-    except Exception as e:
-        st.error(f"Dosya okunurken hata oluştu: {e}")
-        return None
-
 def display_pdf(pdf_bytes: bytes):
-    """Renders PDF inline using an iframe."""
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
     pdf_html = f"""
         <iframe
@@ -59,25 +37,33 @@ def display_pdf(pdf_bytes: bytes):
     st.markdown(pdf_html, unsafe_allow_html=True)
 
 # =========================================================
-# SIDEBAR — CONTROLS
+# SIDEBAR
 # =========================================================
 st.sidebar.header("📄 Rapor Seçimi")
 
-# Date picker — default: yesterday (reports are usually for previous day)
 selected_date = st.sidebar.date_input(
     "Tarih Seç",
     value=date.today() - timedelta(days=1),
     max_value=date.today()
 )
 
-# Language selector
 lang = st.sidebar.radio(
     "Dil / Language",
     options=["TR", "EN"],
     horizontal=True
 )
 
-load_btn = st.sidebar.button("📥 Raporu Getir", use_container_width=True)
+st.sidebar.markdown("---")
+
+expected_filename = build_filename(selected_date, lang)
+st.sidebar.caption(f"📎 Beklenen dosya adı:")
+st.sidebar.code(expected_filename, language=None)
+
+uploaded_file = st.sidebar.file_uploader(
+    "PDF Dosyasını Yükle",
+    type=["pdf"],
+    help=f"Bilgisayarından {expected_filename} dosyasını seç"
+)
 
 # =========================================================
 # MAIN AREA
@@ -85,34 +71,31 @@ load_btn = st.sidebar.button("📥 Raporu Getir", use_container_width=True)
 st.markdown("## 📈 Daily Options Report")
 st.markdown("---")
 
-if load_btn:
-    filename = build_filename(selected_date, lang)
-    file_path = NAS_DIR / filename
+if uploaded_file is not None:
+    if uploaded_file.name != expected_filename:
+        st.warning(
+            f"⚠️ Yüklenen dosya adı (**{uploaded_file.name}**) seçilen tarih/dil ile eşleşmiyor.\n\n"
+            f"Beklenen: **{expected_filename}**\n\n"
+            f"Yine de görüntülemek için devam edebilirsiniz."
+        )
 
-    st.caption(f"📁 Aranan dosya: `{file_path}`")
-
-    with st.spinner("NAS'tan rapor yükleniyor..."):
-        pdf_bytes = load_pdf(file_path)
-
-    if pdf_bytes:
-        st.success(f"✅ Rapor bulundu: **{filename}**")
-        
-        # Download button
+    pdf_bytes = uploaded_file.read()
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.success(f"✅ **{uploaded_file.name}** yüklendi.")
+    with col2:
         st.download_button(
             label="⬇️ PDF İndir",
             data=pdf_bytes,
-            file_name=filename,
+            file_name=uploaded_file.name,
             mime="application/pdf"
         )
-        
-        st.markdown("---")
-        display_pdf(pdf_bytes)
-    else:
-        st.warning(
-            f"⚠️ **{filename}** bulunamadı.\n\n"
-            f"- Seçilen tarihte rapor olmayabilir (hafta sonu / tatil)\n"
-            f"- NAS bağlantısını kontrol edin\n"
-            f"- Dosya adı formatını kontrol edin"
-        )
+
+    st.markdown("---")
+    display_pdf(pdf_bytes)
+
 else:
-    st.info("👈 Soldan tarih ve dil seçip **'Raporu Getir'** butonuna tıklayın.")
+    st.info(
+        f"👈 Soldan tarih ve dil seçin, ardından **{expected_filename}** dosyasını yükleyin."
+    )
