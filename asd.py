@@ -20,15 +20,35 @@ st.set_page_config(
 
 # Custom Colors for Top Participants (Consistent coloring across charts)
 PARTICIPANT_COLORS = {
-    "YAPI KREDI": "#004990",  # Dark Blue
-    "IS YATIRIM": "#1C3F95",  # Blue
-    "B of A": "#DC143C",      # Red (Bank of America)
-    "TEB": "#009639",         # Green
-    "AK YATIRIM": "#E2001A",  # Red
-    "GARANTI": "#005F27",     # Dark Green
-    "INFO": "#E4002B",        # Red
-    "TACIRLER": "#FFD700",    # Gold
-    "OTHER": "#D3D3D3"        # Light Grey
+    # Majors (brand-aligned, deconflicted)
+    "YAPI KREDI":      "#004990",  # YK Navy
+    "IS YATIRIM":      "#1C3F95",  # IS Blue
+    "AK YATIRIM":      "#E2001A",  # Akbank Red
+    "B of A":          "#8B0000",  # Dark Red (was clashing with AK)
+    "GARANTI":         "#005F27",  # Garanti Dark Green
+    "TEB":             "#009639",  # TEB Green
+    "TACIRLER":        "#FFD700",  # Gold
+    "INFO":            "#FF6B35",  # Orange (was 3rd red — moved)
+
+    # Additional common BIST counterparties
+    "ZIRAAT":          "#003DA5",  # Ziraat Blue
+    "HALK YATIRIM":    "#0066B3",  # Halk
+    "VAKIF":           "#C8102E",  # Vakıf Red
+    "ICBC":            "#A52A2A",  # Brown
+    "GEDIK":           "#6A0DAD",  # Purple
+    "OYAK":            "#FF8C00",  # Dark Orange
+    "DENIZ":           "#00A9E0",  # Deniz Cyan
+    "FINANS":          "#228B22",  # Forest Green
+    "INTEGRAL":        "#9C27B0",  # Magenta
+    "GLOBAL":          "#795548",  # Brown-grey
+    "MEKSA":           "#FF1493",  # Pink
+
+    # Your shop — make it pop
+    "QNB":             "#7B2D8E",  # QNB Finansbank purple
+    "TW":              "#000000",  # Tradeware
+    "TRADEWARE":       "#000000",
+
+    "OTHER":           "#D3D3D3",
 }
 
 # =========================================================
@@ -524,16 +544,17 @@ if raw_df is not None:
 
             st.subheader(f"Butterfly Analysis: {sel_under} ({sel_exp})")
             
+            FALLBACK_PALETTE = px.colors.qualitative.Bold + px.colors.qualitative.Vivid
+            
             fig = px.bar(
-                chart_data, 
-                x="Plot_X", 
-                y="Plot_Y", 
-                color="Group", 
-                orientation='h',
-                title="<b>Buyers (Left) vs Sellers (Right)</b> | Top Bar: Call (C) - Bottom Bar: Put (P)",
-                color_discrete_map=PARTICIPANT_COLORS, 
+                chart_data,
+                x="Plot_X", y="Plot_Y",
+                color="Group", orientation='h',
+                title="<b>Buyers (Left) vs Sellers (Right)</b> | Top: Call (C) - Bottom: Put (P)",
+                color_discrete_map=PARTICIPANT_COLORS,
+                color_discrete_sequence=FALLBACK_PALETTE,   # <-- new
                 height=700,
-                hover_data={"strike":True, "cp":True}
+                hover_data={"strike": True, "cp": True},
             )
             
             fig.update_layout(
@@ -548,7 +569,33 @@ if raw_df is not None:
                 bargap=0.1, 
                 hovermode="y unified"
             )
+            # Absolute-value tick labels
+            max_abs = chart_data["Plot_X"].abs().max()
+            n_ticks = 7
+            tick_vals = np.linspace(-max_abs, max_abs, n_ticks)
+            tick_labels = [f"{abs(int(v)):,}" for v in tick_vals]
             
+            fig.update_xaxes(
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=tick_labels,
+                zeroline=True,
+                zerolinecolor="white",
+                zerolinewidth=1,
+            )
+            
+            # Fix hover to show signed-free volume
+            chart_data["Abs_Volume"] = chart_data["Plot_X"].abs()
+            fig.update_traces(
+                customdata=chart_data[["strike", "cp", "Side", "Abs_Volume"]].values,
+                hovertemplate=(
+                    "<b>%{fullData.name}</b><br>"
+                    "Strike: %{customdata[0]}<br>"
+                    "Type: %{customdata[1]}<br>"
+                    "Side: %{customdata[2]}<br>"
+                    "Volume: %{customdata[3]:,.0f}<extra></extra>"
+                ),
+            )
             # White Zero Line
             fig.add_vline(x=0, line_color="white", line_width=1)
             
